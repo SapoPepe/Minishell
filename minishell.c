@@ -30,7 +30,7 @@ void main(){
         int pid = fork();
         //Hijo
         if(pid == 0){
-            //Si se tiene una redireción
+            //Si se tiene una redireción de salida
             if(line->redirect_output != NULL){
                 //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
                 FILE *file = fopen(line->redirect_output, "w");
@@ -41,6 +41,7 @@ void main(){
                 fclose(file);
             }
 
+            //Si se tiene una redirección de entrada
             if(line->redirect_input != NULL) {
                 FILE *file = fopen(line->redirect_input, "r");
                 //Si el archivo de entrada no existe hay que mostrar un error
