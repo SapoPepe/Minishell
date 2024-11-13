@@ -8,10 +8,7 @@
 #include <stdlib.h>
 
 
-void main(){
-
-
-
+void main(void){
     char buff[1024];
     tline *line;    //Datos del comando introducido
 
@@ -47,9 +44,8 @@ void main(){
                 //Si el archivo de entrada no existe hay que mostrar un error
                 if(file == NULL) fprintf(stderr, "No se pudo abrir el archivo de entrada %s\n", line->redirect_input);
                 int fd_file = fileno(file);  //Se coge el fd del archivo
-                dup2(fd_file, STDIN_FILENO);    //Se sustituye el fd de salida estandar por el fd del fichero para que la salida se guarde ahí
+                dup2(fd_file, STDIN_FILENO);    //Se sustituye el fd de entrada estandar por el fd del fichero para que la entrada se lea de ahí
                 fclose(file);
-
             }
 
             execvp(line->commands[0].filename, line->commands[0].argv);
@@ -65,8 +61,6 @@ void main(){
     }
 
     printf("Se ha salido del bucle");
-
-
 
 }
 
