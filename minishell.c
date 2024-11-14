@@ -32,7 +32,10 @@ void main(void){
                     //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
                     FILE *file = fopen(line->redirect_output, "w");
                     //Comprobar si ha fallado fopen
-                    if(file == NULL) fprintf(stderr, "No se pudo abrir el archivo %s\n", line->redirect_output);
+                    if(file == NULL) {
+                        fprintf(stderr, "No se pudo abrir el archivo %s\n", line->redirect_output);
+                        exit(1);
+                    }
                     int fd_file = fileno(file);
                     dup2(fd_file, STDOUT_FILENO);
                     fclose(file);
@@ -51,15 +54,19 @@ void main(void){
                     fclose(file);
 
                 }
-            //Si se tiene una redirección de entrada
-            if(line->redirect_input != NULL) {
-                FILE *file = fopen(line->redirect_input, "r");
-                //Si el archivo de entrada no existe hay que mostrar un error
-                if(file == NULL) fprintf(stderr, "No se pudo abrir el archivo de entrada %s\n", line->redirect_input);
-                int fd_file = fileno(file);  //Se coge el fd del archivo
-                dup2(fd_file, STDIN_FILENO);    //Se sustituye el fd de entrada estandar por el fd del fichero para que la entrada se lea de ahí
-                fclose(file);
-            }
+
+                //Si se tiene redirección de error
+                if (line->redirect_error != NULL) {
+                    FILE *file = fopen(line->redirect_error, "w");
+                    //Comprobamos si ha fallado el open
+                    if (file == NULL) {
+                        fprintf(stderr, "No se pudo abrir el archivo %s\n", line->redirect_error);
+                        exit(1);
+                    }
+                    int fd_file = fileno(file);
+                    dup2(fd_file, STDERR_FILENO);
+                    fclose(file);
+                }
 
                 //Si el comando no existe
                 if(line->commands[0].filename == NULL) {
@@ -86,7 +93,7 @@ void main(void){
             int h1h2[2];
             pipe(h1h2);
 
-            //El primer comando serrá el inicio (solo se podrá modificar su entrada estandar)
+            //El primer comando será el inicio (solo se podrá modificar su entrada estandar)
             command1 = fork();
             if(command1 == 0) {
                 //Si el primer comando tiene una redirección de entrada
@@ -112,6 +119,7 @@ void main(void){
             //El segundo comando será el final (solo se podrá modificar su salida estandar)
             command2 = fork();
             if(command2 == 0) {
+                //Si tiene redirección de salida
                 if(line->redirect_output != NULL) {
                     //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
                     FILE *file = fopen(line->redirect_output, "w");
@@ -119,6 +127,19 @@ void main(void){
                     if(file == NULL) fprintf(stderr, "No se pudo abrir el archivo %s\n", line->redirect_output);
                     int fd_file = fileno(file);
                     dup2(fd_file, STDOUT_FILENO/*Descriptor de fichero de la salida para el ultimo comando */);
+                    fclose(file);
+                }
+
+                //Si se tiene redirección de error
+                if (line->redirect_error != NULL) {
+                    FILE *file = fopen(line->redirect_error, "w");
+                    //Comprobamos si ha fallado el open
+                    if (file == NULL) {
+                        fprintf(stderr, "No se pudo abrir el archivo %s\n", line->redirect_error);
+                        exit(1);
+                    }
+                    int fd_file = fileno(file);
+                    dup2(fd_file, STDERR_FILENO);
                     fclose(file);
                 }
 
