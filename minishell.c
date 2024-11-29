@@ -46,7 +46,8 @@ void main(void){
             else if(strcmp(line->commands[0].argv[0], "fg") == 0) {
 
             }
-            
+
+
             else {
                 //Se ejecuta el comando
                 pid_t pid = fork();
