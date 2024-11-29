@@ -47,7 +47,6 @@ void main(void){
 
             }
 
-
             else {
                 //Se ejecuta el comando
                 pid_t pid = fork();
