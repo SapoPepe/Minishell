@@ -6,24 +6,54 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <signal.h>
 
 int contador, **h1h2;
 pid_t *pids;
 tline *line;    //Datos del comando introducido
 
+void ignorar_señal(int sig){
+    //No hacemos nada para ignorar la señal.
+}
+
 void main(void){
     char buff[1024];
+    char *start_line;
+    //Ignoramos las señales SIGINT y SIGQUIT
+    signal(SIGINT, ignorar_señal);
+    signal(SIGQUIT, ignorar_señal);
 
     printf("msh> ");
     while(fgets(buff, 1024, stdin) != NULL){
-        line = tokenize(buff);   //Se toqueniza el comando
+        start_line = buff;
+        //Nos saltamos todos los espacios o tabulaciones que haya al principio de la entrada
+        while (isspace(*start_line) && *start_line != '\n')
+        {
+            start_line++;
+        }
+        
+        //Comprobamos si se ha introducido algún valor antes de hacer el tokenize
+        if (start_line[0] != '\n'){
+            line = tokenize(start_line);  //Se toqueniza el comando
+        } else {
+            line = NULL;
+        }
 
         //Si no se introduce nada se hace un "salto de línea"
-        if(line == NULL) continue;
+        if(line == NULL){
+            printf("msh> ");
+            fflush(stdout);
+            continue;
+        };
+
+        if (!strcmp(line->commands[0].argv[0], "exit")){
+            exit(0);
+        }
 
 
         //Si el comando introducido es un "cd"
-        if (strcmp(line->commands[0].argv[0], "cd") == 0) {
+        if (!strcmp(line->commands[0].argv[0], "cd")) {
             int cd = 0;
             //Si no tiene dirección se accederá directamente a lo que contenga la variable HOME
             if(line->commands[0].argc == 1) {
@@ -39,12 +69,12 @@ void main(void){
         }
 
         //Si el comando introducido es "jobs"
-        else if(strcmp(line->commands[0].argv[0], "jobs") == 0){
+        else if(!strcmp(line->commands[0].argv[0], "jobs")){
             printf("Jobs\n");
         }
 
         //Si el comando introducido es "fg"
-        else if(strcmp(line->commands[0].argv[0], "fg") == 0) {
+        else if(!strcmp(line->commands[0].argv[0], "fg")) {
             printf("Fg\n");
         }
 
@@ -70,7 +100,6 @@ void main(void){
 
                 //Hijo se ejecuta
                 if(aux == 0){
-
                     //Si el hijo es el primer comando y tiene una redirección
                     if(contador == 0) {
                         if(line->redirect_input != NULL) {
@@ -85,16 +114,46 @@ void main(void){
                             fclose(file);
                         }
 
+                        //Si solo hay un comando y tiene redirección de error
+                        if(line->redirect_error != NULL && line->ncommands == 1){
+                            //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
+                            FILE *file = fopen(line->redirect_error, "w");
+                            //Comprobar si ha fallado fopen
+                            if(file == NULL) fprintf(stderr, "No se pudo abrir el archivo de salida %s\n", line->redirect_error);
+                            int fd_file = fileno(file);
+                            dup2(fd_file, STDERR_FILENO);
+                            fclose(file);
+                        }
+                        //Si solo hay un comando y tiene redirección de salida
+                        else if(line->redirect_output != NULL && line->ncommands == 1){
+                            //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
+                            FILE *file = fopen(line->redirect_output, "w");
+                            //Comprobar si ha fallado fopen
+                            if(file == NULL) fprintf(stderr, "No se pudo abrir el archivo de redirección de error %s\n", line->redirect_output);
+                            int fd_file = fileno(file);
+                            dup2(fd_file, STDOUT_FILENO);
+                            fclose(file);
+                        }
+
                         //Se utiliza el primer pipe para pasar la info del comando1 al comando2 en el caso de que haya más de un comandoo
                         if (line->ncommands > 1) {
                             dup2(h1h2[contador][1], STDOUT_FILENO);
                         }
                     }
-
-
                     //Si el hijo es el último y tiene una redirección
                     else if(contador == line->ncommands-1) {
-                        if(line->redirect_output != NULL){
+                        //Tiene redirección de error
+                        if(line->redirect_error != NULL){
+                            //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
+                            FILE *file = fopen(line->redirect_error, "w");
+                            //Comprobar si ha fallado fopen
+                            if(file == NULL) fprintf(stderr, "No se pudo abrir el archivo de salida %s\n", line->redirect_error);
+                            int fd_file = fileno(file);
+                            dup2(fd_file, STDERR_FILENO);
+                            fclose(file);
+                        }
+                        //Tiene redirección de salida
+                        else if(line->redirect_output != NULL){
                             //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
                             FILE *file = fopen(line->redirect_output, "w");
                             //Comprobar si ha fallado fopen
@@ -136,18 +195,26 @@ void main(void){
                         }
                     }
 
-                    //Se ejecuta el comando
-                    execvp(line->commands[contador].filename, line->commands[contador].argv);
-                    fprintf(stderr, "Ha habido un problema ejecutando %s\n", line->commands[contador].filename);
+                    if (line->background == 1)
+                    {
+                        printf("[%d]\n", getpid());
+                        printf("msh> ");
+                        fflush(stdout);
+                    }
+                    
+                    //Si existe el comando introducido lo ejecutamos
+                    if (line->commands[contador].filename != NULL){
+                        execvp(line->commands[contador].filename, line->commands[contador].argv);
+                    }
+                    //Si no existe o ha habido un problema ejecutando el comando se imprime un mensaje de error
+                    fprintf(stderr, "Ha habido un problema ejecutando %s\n", line->commands[contador].argv[0]);
                     exit(1);
-
                 }
 
                 //Padre guarda el pid_t del hijo
                 else {
                     pids[contador] = aux;
                 }
-
             }
 
             //el padre cierra todos los pipes
@@ -156,16 +223,27 @@ void main(void){
                 close(h1h2[j][1]);
             }
 
-            // Esperar a que todos los procesos hijos terminen
-            for (int i = 0; i < line->ncommands; i++) {
-                waitpid(pids[i], NULL, 0);
+            //Si el comando no se tiene que ejecutar en background
+            if (line->background == 0){
+                // Esperar a que todos los procesos hijos terminen
+                for (int i = 0; i < line->ncommands; i++) {
+                    waitpid(pids[i], NULL, 0);
+                }
             }
+            //Liberamos toda la memoria que habíamos reservado para los PIDs
+            free(pids);
+            //Liberamos la memoria que habíamos reservado para los pipes
+            for(int j=0; j < line->ncommands-1; j++) {
+                free(h1h2[j]);
+            }
+            free(h1h2);
         }
 
-        printf("msh> ");
-        fflush(stdout);
-
+        if (line->background == 0)
+        {
+            printf("msh> ");
+            fflush(stdout);
+        }
     }
-
-    printf("Se ha salido del bucle");
+    exit(0);
 }
