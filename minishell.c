@@ -8,13 +8,29 @@
 #include <string.h>
 #include <ctype.h>
 #include <signal.h>
+#define MAX_JOBS 1024
 
-int contador, **h1h2;
+void addJob(pid_t pid, char *line);
+void jobsUpdate();
+void removeOldJobs();
+
+typedef struct {
+    pid_t pid;
+    char command[1024];
+    int active; //1 = active // 0 = inactive // -1 información basura
+}Job;
+
+
+Job jobs[MAX_JOBS]; //Lista donde se irán guardando todos los comandos que se encuentren en ejecución
+int contador, **h1h2, contadorJob = 0, lastPosJob = 0;
 pid_t *pids;
 tline *line;    //Datos del comando introducido
 
 
 void main(void){
+    //Se inicializan todos los valores de active a -1 del array de jobs para que no haya problemas posteriores
+    for(int i=0; i<MAX_JOBS; i++) jobs[i].active = -1;
+
     char buff[1024];
     char *start_line;
     //Ignoramos las señales SIGINT y SIGQUIT
@@ -23,12 +39,13 @@ void main(void){
 
     printf("msh> ");
     while(fgets(buff, 1024, stdin) != NULL){
+        //Se actualizan los estados de los jobs en background
+        jobsUpdate();
+
         start_line = buff;
         //Nos saltamos todos los espacios o tabulaciones que haya al principio de la entrada
-        while (isspace(*start_line) && *start_line != '\n')
-        {
-            start_line++;
-        }
+        while (isspace(*start_line) && *start_line != '\n') start_line++;
+
 
         //Comprobamos si se ha introducido algún valor antes de hacer el tokenize
         if (start_line[0] != '\n') line = tokenize(start_line);  //Se toqueniza el comando
@@ -64,7 +81,12 @@ void main(void){
 
         //Si el comando introducido es "jobs"
         else if(!strcmp(line->commands[0].argv[0], "jobs")){
-            printf("Jobs\n");
+            if(contadorJob != 0) {
+                for(int i=0; i<=lastPosJob; i++) {
+                    if(jobs[i].active == 1) printf("[%d]+  Running\t\t%s", i, jobs[i].command);
+                    else if (jobs[i].active == 0) printf("[%d]-  Done\t\t%s", i, jobs[i].command);
+                }
+            }
         }
 
         //Si el comando introducido es "fg"
@@ -181,9 +203,10 @@ void main(void){
                             }
                         }
 
-                        if (line->background == 1)
-                        {
-                            printf("[%d]\n", getpid());
+
+                        //Si se tiene que hacer el comando en background, se muestra el pid del proceso
+                        if (line->background == 1){
+                            printf("[%d] %d\n", contadorJob+1, getpid());
                             printf("msh> ");
                             fflush(stdout);
                         }
@@ -196,9 +219,13 @@ void main(void){
 
                     }
 
-                    //Padre guarda el pid_t del hijo
+                    //Padre
                     else {
+                        //Padre guarda el pid_t del hijo
                         pids[contador] = aux;
+
+                        //Si el proceso está en background se añade a la lista de procesos el nuevo proceso
+                        if(line->background == 1) addJob(aux, start_line);
                     }
 
                 }
@@ -216,6 +243,7 @@ void main(void){
                         waitpid(pids[i], NULL, 0);
                     }
                 }
+
                 //Liberamos toda la memoria que habíamos reservado para los PIDs
                 free(pids);
                 //Liberamos la memoria que habíamos reservado para los pipes
@@ -225,11 +253,65 @@ void main(void){
                 free(h1h2);
             }
         }
-        if (line->background == 0)
-        {
+
+        if (line->background == 0){
             printf("msh> ");
             fflush(stdout);
         }
+
+
+        //Se eliminan los jobs que ya han acabado su ejecución
+        removeOldJobs();
     }
     exit(0);
+}
+
+
+
+
+//Añade un job a la lista
+void addJob(pid_t pid, char *line) {
+    if(contadorJob <= MAX_JOBS) {
+        int pos = 0;
+        //Se busca la primera posición libre en el array
+        while (jobs[pos].active != -1) pos++;
+        //Si la posición alcanzada para poder guardar el nuevo job es mayor a la antigua mayor posición se guarda la nueva mayor posición (sirve para saber donde está el extremo ocupadp del array)
+        if(pos > lastPosJob) lastPosJob = pos;
+
+        //Se sobreescribe lo que hubiera guardado en esa posición por los datos del job actual
+        jobs[pos].pid = pid;
+        strcpy(jobs[pos].command, line);
+        jobs[pos].active = 1;
+        contadorJob++;
+    }
+    else fprintf(stderr, "Max concurrent background jobs reached!\n");
+}
+
+
+
+
+//Actualiza el estado de los jobs guardados
+void jobsUpdate() {
+    for(int i=0; i<=lastPosJob; i++) {
+        if(jobs[i].active == 1) {
+            int status;
+            pid_t result = waitpid(jobs[i].pid, &status, WNOHANG);
+
+            //Si result toma un valor distinto de 0 significa que el hijo ya ha terminado y muerto, de lo contrario tomará el valor 0
+            //Si es así, actualizamos el estado del job
+            if(result != 0) jobs[i].active = 0;
+        }
+    }
+}
+
+
+
+
+void removeOldJobs() {
+    for(int i=0; i<=contadorJob; i++) {
+        if(jobs[i].active == 0) {
+            jobs[i].active = -1;
+            contadorJob--;
+        }
+    }
 }
