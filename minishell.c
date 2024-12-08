@@ -210,6 +210,12 @@ void main(void){
                             printf("msh> ");
                             fflush(stdout);
                         }
+                        //Si el comando es lanzado en primer plano se sigue la actuación normal de las señales
+                        else {
+                            signal(SIGINT, SIG_DFL);
+                            signal(SIGQUIT, SIG_DFL);
+                        }
+
 
 
                         execvp(line->commands[contador].filename, line->commands[contador].argv);
