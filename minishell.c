@@ -13,16 +13,13 @@ int contador, **h1h2;
 pid_t *pids;
 tline *line;    //Datos del comando introducido
 
-void ignorar_señal(int sig){
-    //No hacemos nada para ignorar la señal.
-}
 
 void main(void){
     char buff[1024];
     char *start_line;
     //Ignoramos las señales SIGINT y SIGQUIT
-    signal(SIGINT, ignorar_señal);
-    signal(SIGQUIT, ignorar_señal);
+    signal(SIGINT, SIG_IGN);
+    signal(SIGQUIT, SIG_IGN);
 
     printf("msh> ");
     while(fgets(buff, 1024, stdin) != NULL){
@@ -34,22 +31,19 @@ void main(void){
         }
 
         //Comprobamos si se ha introducido algún valor antes de hacer el tokenize
-        if (start_line[0] != '\n'){
-            line = tokenize(start_line);  //Se toqueniza el comando
-        } else {
-            line = NULL;
-        }
+        if (start_line[0] != '\n') line = tokenize(start_line);  //Se toqueniza el comando
+        else line = NULL;
+
 
         //Si no se introduce nada se hace un "salto de línea"
         if(line == NULL){
             printf("msh> ");
             fflush(stdout);
             continue;
-        };
-
-        if (!strcmp(line->commands[0].argv[0], "exit")){
-            exit(0);
         }
+
+        //Si el comando introducido es un exit se sale de la minishell
+        if (!strcmp(line->commands[0].argv[0], "exit")) exit(0);
 
 
         //Si el comando introducido es un "cd"
@@ -111,6 +105,7 @@ void main(void){
                     if(aux == 0){
                         //Si el hijo es el primer comando y tiene una redirección
                         if(contador == 0) {
+                            //Tiene redirección de entrada
                             if(line->redirect_input != NULL) {
                                 FILE *file = fopen(line->redirect_input, "r");
                                 //Si el archivo de entrada no existe hay que mostrar un error
@@ -123,27 +118,6 @@ void main(void){
                                 fclose(file);
                             }
 
-                            //Si solo hay un comando y tiene redirección de error
-                            if(line->redirect_error != NULL && line->ncommands == 1){
-                                //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
-                                FILE *file = fopen(line->redirect_error, "w");
-                                //Comprobar si ha fallado fopen
-                                if(file == NULL) fprintf(stderr, "Error redirection error:\nAn error occurred while opening %s file\n", line->redirect_error);
-                                int fd_file = fileno(file);
-                                dup2(fd_file, STDERR_FILENO);
-                                fclose(file);
-                            }
-                            //Si solo hay un comando y tiene redirección de salida
-                            else if(line->redirect_output != NULL && line->ncommands == 1){
-                                //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
-                                FILE *file = fopen(line->redirect_output, "w");
-                                //Comprobar si ha fallado fopen
-                                if(file == NULL) fprintf(stderr, "Output redirection error:\nAn error occurred while opening %s file\n", line->redirect_output);
-                                int fd_file = fileno(file);
-                                dup2(fd_file, STDOUT_FILENO);
-                                fclose(file);
-                            }
-
                             //Se utiliza el primer pipe para pasar la info del comando1 al comando2 en el caso de que haya más de un comandoo
                             if (line->ncommands > 1) {
                                 dup2(h1h2[contador][1], STDOUT_FILENO);
@@ -152,7 +126,7 @@ void main(void){
 
 
                         //Si el hijo es el último y tiene una redirección
-                        else if(contador == line->ncommands-1) {
+                        if(contador == line->ncommands-1) {
                             //Tiene redirección de error
                             if(line->redirect_error != NULL){
                                 //Si el archivo NO existe se crea y se abre. Si el archivo SI existe se abre
@@ -184,7 +158,7 @@ void main(void){
 
 
                         //Cualquier otro caso solamente se va pasando la información mediante pipes entre los comandos intermedios
-                        else {
+                        if(contador != 0 && contador != line->ncommands-1 && line->ncommands != 1) {
                             dup2(h1h2[contador-1][0], STDIN_FILENO);    //El extremo de lectura del anterior pipe va como entrada a este comando
                             dup2(h1h2[contador][1], STDOUT_FILENO);     //La salida del comando se mandará al extremo de escritura del siguiente pip
                         }
