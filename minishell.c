@@ -19,12 +19,11 @@ typedef struct {
     int active; //1 = active // 0 = inactive // -1 información basura
 }Job;
 
-int maxJobs = 2;
+int maxJobs = 10; //10 Es un valor arbitrario, ya que al utilizar realloc vamos a ir aumentando el tamaño siempre que sea necesario
 Job *jobs; //Lista donde se irán guardando todos los comandos que se encuentren en ejecución
-int contador, **h1h2, contadorJob = 0, nextPosJob = 0;
+int contador, **h1h2, contadorJob = 0, nextPosJob = 0, lastJobAdded = -1;
 pid_t *pids;
 tline *line;    //Datos del comando introducido
-
 
 void main(void){
     //Se inicializan todos los valores de active a -1 del array de jobs para que no haya problemas posteriores
@@ -91,7 +90,24 @@ void main(void){
 
         //Si el comando introducido es "fg"
         else if(!strcmp(line->commands[0].argv[0], "fg")) {
-            printf("Fg\n");
+            if (lastJobAdded == -1){
+                printf("fg: No current job\n");
+            } else{
+                int num = -1;
+                if (line->commands[0].argc == 1){
+                    num = lastJobAdded;
+                } else if (line->commands[0].argc == 2){
+                    num = atoi(line->commands[0].argv[1])-1;
+                } else {
+                    printf("fg: Incorrect number of arguments\n");
+                }
+
+                if (num >= 0 && num < maxJobs && jobs[num].active == 1) {
+                    printf("[%d]  + %d running    %s", num+1, jobs[num].pid, jobs[num].command);
+                    waitpid(jobs[num].pid, NULL, 0);
+                } 
+                else printf("fg: Job number %d not found\n", num+1);
+            }
         }
 
         //Si es cualquier otro comando
@@ -214,7 +230,7 @@ void main(void){
                         execvp(line->commands[contador].filename, line->commands[contador].argv);
                     }
                     //Si no existe o ha habido un problema ejecutando el comando se imprime un mensaje de error
-                    fprintf(stderr, "Ha habido un problema ejecutando %s\n", line->commands[contador].argv[0]);
+                    fprintf(stderr, "%s No se encuentra el mandato\n", line->commands[contador].argv[0]);
                     exit(1);
                 }
 
@@ -272,6 +288,7 @@ void main(void){
 
 //Añade un job a la lista
 void addJob(pid_t pid, char *line) {
+    lastJobAdded = nextPosJob;
     if(contadorJob < maxJobs) {
         //Se sobreescribe lo que hubiera guardado en esa posición por los datos del job actual
         jobs[nextPosJob].pid = pid;
@@ -299,7 +316,6 @@ void addJob(pid_t pid, char *line) {
 }
 
 
-
 //Actualiza el estado de los jobs guardados
 void jobsUpdate() {
     nextPosJob = -1;
@@ -325,6 +341,17 @@ void removeOldJobs() {
         if(jobs[i].active == 0) {
             jobs[i].active = -1;
             contadorJob--;
+            if (i == lastJobAdded && contadorJob != 0){
+                int j = maxJobs;
+                while (lastJobAdded == i){
+                    if (jobs[j].active == 1){
+                        lastJobAdded = j;
+                    }
+                    j--;
+                }
+            } else if (contadorJob == 0){
+                lastJobAdded = -1;
+            }
         }
     }
 }
