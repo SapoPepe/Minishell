@@ -19,17 +19,13 @@ typedef struct {
     int active; //1 = active // 0 = inactive // -1 información basura
 }Job;
 
-int maxJobs = 10; //10 Es un valor arbitrario, ya que al utilizar realloc vamos a ir aumentando el tamaño siempre que sea necesario
-Job *jobs; //Lista donde se irán guardando todos los comandos que se encuentren en ejecución
+int maxJobs = 0; //10 Es un valor arbitrario, ya que al utilizar realloc vamos a ir aumentando el tamaño siempre que sea necesario
+Job *jobs = NULL; //Lista donde se irán guardando todos los comandos que se encuentren en ejecución
 int contador, **h1h2, contadorJob = 0, nextPosJob = 0, lastJobAdded = -1;
 pid_t *pids;
 tline *line;    //Datos del comando introducido
 
 void main(void){
-    //Se inicializan todos los valores de active a -1 del array de jobs para que no haya problemas posteriores
-    jobs = malloc(maxJobs*sizeof(Job));
-    for(int i=0; i<maxJobs; i++) jobs[i].active = -1;
-
     char buff[1024];
     char *start_line;
     //Ignoramos las señales SIGINT y SIGQUIT
@@ -38,8 +34,11 @@ void main(void){
 
     printf("msh> ");
     while(fgets(buff, 1024, stdin) != NULL){
-        //Se actualizan los estados de los jobs en background
-        jobsUpdate();
+        //Se actualizan los estados de los jobs en background solo si tenemos procesos en background
+        if (jobs != NULL)
+        {
+            jobsUpdate();
+        }
 
         start_line = buff;
         //Nos saltamos todos los espacios o tabulaciones que haya al principio de la entrada
@@ -59,7 +58,21 @@ void main(void){
         }
 
         //Si el comando introducido es un exit se sale de la minishell
-        if (!strcmp(line->commands[0].argv[0], "exit")) exit(0);
+        if (!strcmp(line->commands[0].argv[0], "exit")){
+            for (int i = 0; i < maxJobs; i++){
+                if (jobs[i].active == 1)
+                {
+                    int status;
+                    pid_t result = waitpid(jobs[i].pid, &status, WNOHANG);
+
+                    //Si result toma un valor distinto de 0 significa que el hijo ya ha terminado y muerto, de lo contrario tomará el valor 0
+                    //Si nos ha devuelto un 0 matamos el proceso antes de liberar la memoria
+                    if(result == 0) kill(jobs[i].pid, SIGKILL);;
+                }
+            }
+            free(jobs);
+            exit(0);
+        }
 
 
         //Si el comando introducido es un "cd"
@@ -275,10 +288,21 @@ void main(void){
             fflush(stdout);
         }
 
-
         //Se eliminan los jobs que ya han acabado su ejecución
         removeOldJobs();
     }
+    for (int i = 0; i < maxJobs; i++){
+        if (jobs[i].active == 1)
+        {
+            int status;
+            pid_t result = waitpid(jobs[i].pid, &status, WNOHANG);
+
+            //Si result toma un valor distinto de 0 significa que el hijo ya ha terminado y muerto, de lo contrario tomará el valor 0
+            //Si nos ha devuelto un 0 matamos el proceso antes de liberar la memoria
+            if(result == 0) kill(jobs[i].pid, SIGKILL);;
+        }
+    }
+
     free(jobs);
     exit(0);
 }
@@ -299,7 +323,14 @@ void addJob(pid_t pid, char *line) {
     else {
         //Ampliamos el tamaño del array de procesos para añadir el siguiente
         maxJobs++;
-        jobs = realloc(jobs, maxJobs*sizeof(Job));
+        if (jobs == NULL){
+            jobs = malloc(sizeof(Job));
+            jobs[0].active = -1;
+        } else{
+            jobs = realloc(jobs, maxJobs*sizeof(Job));
+            jobs[maxJobs-1].active = -1;
+        }
+        
         if (jobs == NULL)
         {
             fprintf(stderr, "Ha habido un problema redimensionando el array de procesos \n");
@@ -329,16 +360,25 @@ void jobsUpdate() {
             if(result != 0) jobs[i].active = 0;
         }
 
-        //Buscamos cual sería la siguiente posición en la que podemos guardar un job
+        //Buscamos cual sería la siguiente posición en la que podemos guardar un job en caso de que el array no esté lleno
         if(jobs[i].active == -1 && nextPosJob == -1){
             nextPosJob = i;
         }
     }
+    //Si el array estaba lleno, ponemos el siguiente valor de nextPosJob
+    if (nextPosJob == -1){
+        nextPosJob = maxJobs;
+    }
 }
 
 void removeOldJobs() {
+    int freeSpace = 0;
     for(int i=0; i<maxJobs; i++) {
-        if(jobs[i].active == 0) {
+        //Calculamos cuanto espacio libre tenemos al final del array
+        if (jobs[i].active != 1) {
+            freeSpace++;
+        } 
+        else if(jobs[i].active == 0) {
             jobs[i].active = -1;
             contadorJob--;
             if (i == lastJobAdded && contadorJob != 0){
@@ -352,6 +392,29 @@ void removeOldJobs() {
             } else if (contadorJob == 0){
                 lastJobAdded = -1;
             }
+        }
+        else if (jobs[i].active == 1){
+            freeSpace = 0;
+        }
+    }
+    //Si tenemos espacio libre al final del array lo liberamos
+    if (freeSpace > 0)
+    {
+        maxJobs = maxJobs - freeSpace;
+        printf("%d\n", maxJobs);
+        //Si el array se queda vacío liberamos todo el espacio si no redimensionamos el array al nuevo tamaño
+        if (maxJobs == 0){
+            free(jobs);
+            nextPosJob = 0;
+            lastJobAdded = -1;
+        }
+        else {
+            jobs = realloc(jobs, maxJobs*sizeof(Job));
+            if (jobs == NULL)
+            {
+                fprintf(stderr, "Ha habido un problema redimensionando el array de procesos \n");
+                exit(1);
+            }   
         }
     }
 }
